@@ -442,6 +442,22 @@ variable "worker_config_patches" {
   description = "List of configuration patches applied to the Worker nodes."
 }
 
+variable "external_worker_nodes" {
+  type = list(object({
+    name                 = optional(string)
+    private_ipv4_address = string
+  }))
+  default     = []
+  description = "Defines Worker nodes that are managed outside of this module but should participate in Talos health checks."
+
+  validation {
+    condition = alltrue([
+      for node in var.external_worker_nodes : can(cidrnetmask("${node.private_ipv4_address}/32"))
+    ])
+    error_message = "Each external worker node must specify a valid IPv4 address."
+  }
+}
+
 
 # Cluster Autoscaler
 variable "cluster_autoscaler_helm_repository" {

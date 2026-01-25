@@ -190,6 +190,21 @@ module "kubernetes" {
 > [!NOTE]
 > Each Control Plane node requires at least 4GB of memory and each Worker node at least 2GB. For High-Availability (HA), at least 3 Control Plane nodes and 3 Worker nodes are required.
 
+#### External Worker Nodes
+
+If you run additional Worker nodes outside of Hetzner (for example, on a Raspberry Pi), you can add them to the module’s health checks by defining `external_worker_nodes`. These nodes are **not** created or configured by Terraform—the module only tracks their IPs so Talos health checks know about them.
+
+```hcl
+external_worker_nodes = [
+  {
+    name                 = "raspi4"
+    private_ipv4_address = "10.50.0.200"
+  }
+]
+```
+
+Once the node is joined to the cluster, `external_worker_nodes` prevents `talosctl health` (run during provisioning) from reporting it as an unexpected node.
+
 Initialize and deploy the cluster:
 
 **Terraform:**
