@@ -41,6 +41,31 @@ locals {
       var.longhorn_enabled ? local.talos_image_extentions_longhorn : []
     )
   )
+
+  external_worker_schematic_overrides = {
+    for node in var.external_worker_nodes :
+    node.private_ipv4_address => {
+      key          = "${node.talos_upgrade_platform}:${node.talos_upgrade_architecture}:${node.talos_schematic_id}"
+      schematic_id = node.talos_schematic_id
+    }
+    if node.talos_schematic_id != null
+  }
+
+  external_worker_schematic_keys = toset(compact([
+    for node in var.external_worker_nodes :
+    node.talos_schematic_id != null ?
+    "${node.talos_upgrade_platform}:${node.talos_upgrade_architecture}:${node.talos_schematic_id}" :
+    null
+  ]))
+
+  external_worker_schematic_data = {
+    for key in local.external_worker_schematic_keys :
+    key => {
+      platform     = split(":", key)[0]
+      architecture = split(":", key)[1]
+      schematic_id = split(":", key)[2]
+    }
+  }
 }
 
 data "talos_image_factory_extensions_versions" "this" {
@@ -83,6 +108,15 @@ data "talos_image_factory_urls" "arm64" {
   schematic_id  = local.talos_schematic_id
   platform      = "hcloud"
   architecture  = "arm64"
+}
+
+data "talos_image_factory_urls" "external_worker" {
+  for_each = local.external_worker_schematic_data
+
+  talos_version = var.talos_version
+  schematic_id  = each.value.schematic_id
+  platform      = each.value.platform
+  architecture  = each.value.architecture
 }
 
 data "hcloud_images" "amd64" {
@@ -213,4 +247,14 @@ data "hcloud_image" "arm64" {
   most_recent       = true
 
   depends_on = [terraform_data.arm64_image]
+}
+
+locals {
+  external_worker_upgrade_overrides = {
+    for ip, cfg in local.external_worker_schematic_overrides :
+    ip => {
+      schematic_id        = cfg.schematic_id
+      installer_image_url = data.talos_image_factory_urls.external_worker[cfg.key].urls.installer
+    }
+  }
 }

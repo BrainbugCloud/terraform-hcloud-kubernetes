@@ -1,3 +1,26 @@
+%{ if length(node_upgrade_overrides) > 0 ~}
+node_override_schematic() {
+  case "$1" in
+%{ for host, cfg in node_upgrade_overrides ~}
+    ${jsonencode(host)}) printf '%s\n' ${jsonencode(cfg.schematic_id)}; return 0 ;;
+%{ endfor ~}
+  esac
+  return 1
+}
+
+node_override_image() {
+  case "$1" in
+%{ for host, cfg in node_upgrade_overrides ~}
+    ${jsonencode(host)}) printf '%s\n' ${jsonencode(cfg.installer_image_url)}; return 0 ;;
+%{ endfor ~}
+  esac
+  return 1
+}
+%{ else ~}
+node_override_schematic() { return 1; }
+node_override_image() { return 1; }
+%{ endif ~}
+
 talos_wait_for_health
 
 set -- ${join(" ", upgrade_nodes)}
@@ -8,8 +31,12 @@ for host in "$@"; do
 
     current_version=$(talos_get_version --nodes "$host")
     current_schematic=$(talos_get_schematic --nodes "$host")
+    override_schematic=$(node_override_schematic "$host" || true)
+    default_schematic='${talos_schematic_id}'
+    target_schematic="$${override_schematic:-$default_schematic}"
+    override_image=$(node_override_image "$host" || true)
 
-    if [ "$current_version" = "${talos_version}" ] && [ "$current_schematic" = "${talos_schematic_id}" ]; then
+    if [ "$current_version" = "${talos_version}" ] && [ "$current_schematic" = "$target_schematic" ]; then
       if [ "$retry" -gt 1 ]; then
         printf '%s\n' "Node $host is already at Talos $current_version ($current_schematic). Waiting for cluster to stabilize ..."
         sleep 5
@@ -27,8 +54,20 @@ for host in "$@"; do
       printf '%s\n' "Could not determine current Talos version or schematic for node $host"
     fi
 
-    printf '%s\n' "Upgrading node $host to Talos ${talos_version} (${talos_schematic_id}) ..."
-    if talos_upgrade --nodes "$host"; then
+    printf '%s\n' "Upgrading node $host to Talos ${talos_version} ($target_schematic) ..."
+    if [ -n "$override_image" ]; then
+      if TALOS_INSTALLER_IMAGE_URL_OVERRIDE="$override_image" talos_upgrade --nodes "$host"; then
+        upgrade_success=1
+      else
+        upgrade_success=0
+      fi
+    elif talos_upgrade --nodes "$host"; then
+      upgrade_success=1
+    else
+      upgrade_success=0
+    fi
+
+    if [ "$upgrade_success" -eq 1 ]; then
       printf '%s\n' "Upgrade successfully completed for node $host"
       sleep 5
 

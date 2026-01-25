@@ -199,11 +199,16 @@ external_worker_nodes = [
   {
     name                 = "raspi4"
     private_ipv4_address = "10.50.0.200"
+    talos_schematic_id   = "abcd1234..."
+    talos_upgrade_platform     = "metal"
+    talos_upgrade_architecture = "arm64"
   }
 ]
 ```
 
 Once the node is joined to the cluster, `external_worker_nodes` prevents `talosctl health` (run during provisioning) from reporting it as an unexpected node.
+
+When `talos_schematic_id` is specified, the module fetches the matching Talos installer image (respecting the optional platform and architecture overrides) and uses it during automated upgrades so that external nodes remain on their expected schematic.
 
 Initialize and deploy the cluster:
 

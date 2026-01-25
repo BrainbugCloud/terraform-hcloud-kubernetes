@@ -444,8 +444,11 @@ variable "worker_config_patches" {
 
 variable "external_worker_nodes" {
   type = list(object({
-    name                 = optional(string)
-    private_ipv4_address = string
+    name                        = optional(string)
+    private_ipv4_address        = string
+    talos_schematic_id          = optional(string)
+    talos_upgrade_platform      = optional(string, "hcloud")
+    talos_upgrade_architecture  = optional(string, "amd64")
   }))
   default     = []
   description = "Defines Worker nodes that are managed outside of this module but should participate in Talos health checks."
@@ -455,6 +458,14 @@ variable "external_worker_nodes" {
       for node in var.external_worker_nodes : can(cidrnetmask("${node.private_ipv4_address}/32"))
     ])
     error_message = "Each external worker node must specify a valid IPv4 address."
+  }
+
+  validation {
+    condition = alltrue([
+      for node in var.external_worker_nodes :
+      node.talos_upgrade_architecture == null || contains(["amd64", "arm64"], node.talos_upgrade_architecture)
+    ])
+    error_message = "Each external worker node must specify a valid architecture when overriding the schematic. Allowed values are 'amd64' or 'arm64'."
   }
 }
 

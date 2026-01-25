@@ -120,6 +120,7 @@ resource "terraform_data" "upgrade_control_plane" {
         upgrade_nodes      = local.control_plane_private_ipv4_list
         talos_version      = var.talos_version
         talos_schematic_id = local.talos_schematic_id
+        node_upgrade_overrides = {}
       }),
       "printf '%s\\n' \"Control Plane Nodes upgraded successfully\"",
     ]) : "printf '%s\\n' \"Cluster not initialized, skipping Control Plane Node upgrade\""
@@ -153,6 +154,7 @@ resource "terraform_data" "upgrade_worker" {
         upgrade_nodes      = local.worker_private_ipv4_list
         talos_version      = var.talos_version
         talos_schematic_id = local.talos_schematic_id
+        node_upgrade_overrides = local.external_worker_upgrade_overrides
       }),
       "printf '%s\\n' \"Worker Nodes upgraded successfully\"",
     ]) : "printf '%s\\n' \"Cluster not initialized, skipping Worker Node upgrade\""
@@ -188,6 +190,7 @@ resource "terraform_data" "upgrade_cluster_autoscaler" {
         upgrade_nodes      = local.cluster_autoscaler_private_ipv4_list
         talos_version      = var.talos_version
         talos_schematic_id = local.talos_schematic_id
+        node_upgrade_overrides = {}
       }),
       "printf '%s\\n' \"Cluster Autoscaler Nodes upgraded successfully\"",
     ]) : "printf '%s\\n' \"Cluster not initialized, skipping Cluster Autoscaler Node upgrade\""

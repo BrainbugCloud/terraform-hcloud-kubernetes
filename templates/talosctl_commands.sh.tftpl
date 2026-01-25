@@ -42,6 +42,11 @@ talos_wait_for_health() {
 }
 
 talos_upgrade() {
+  image='${talos_installer_image_url}'
+  if [ -n "$${TALOS_INSTALLER_IMAGE_URL_OVERRIDE:-}" ]; then
+    image="$${TALOS_INSTALLER_IMAGE_URL_OVERRIDE}"
+  fi
+
   talosctl upgrade \
     --talosconfig "$talosconfig" \
 %{ if talos_upgrade_debug ~}
@@ -59,7 +64,7 @@ talos_upgrade() {
 %{ if talos_upgrade_reboot_mode != null ~}
     --reboot-mode '${talos_upgrade_reboot_mode}' \
 %{ endif ~}
-    --image '${talos_installer_image_url}' \
+    --image "$image" \
     "$@"
 }
 
