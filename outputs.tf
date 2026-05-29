@@ -46,6 +46,28 @@ output "talos_machine_configurations_worker" {
   sensitive   = true
 }
 
+output "talos_machine_configurations_external_worker" {
+  description = <<-EOT
+    Talos machine configuration templates for external worker node pools, keyed by node pool
+    name. Use these for the one-time `talosctl apply-config --insecure` that joins a node
+    booted into maintenance mode (add a per-node HostnameConfig — "<cluster>-<nodepool>-<suffix>"
+    — and any node-specific networking via a config patch before applying). Once joined and
+    discovered, the module manages the configuration and upgrades automatically.
+  EOT
+  value       = data.talos_machine_configuration.external_worker
+  sensitive   = true
+}
+
+output "external_worker_public_ipv4_list" {
+  description = "Discovered public IPv4 addresses of external worker nodes."
+  value       = local.external_worker_public_ipv4_list
+}
+
+output "external_worker_private_ipv4_list" {
+  description = "Discovered private IPv4 addresses of external worker nodes."
+  value       = local.external_worker_private_ipv4_list
+}
+
 output "control_plane_private_ipv4_list" {
   description = "List of private IPv4 addresses assigned to control plane nodes."
   value       = local.control_plane_private_ipv4_list

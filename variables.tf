@@ -454,6 +454,72 @@ variable "worker_config_patches" {
 }
 
 
+# External Worker Nodes
+variable "external_worker_nodepools" {
+  type = list(object({
+    name               = string
+    labels             = optional(map(string), {})
+    annotations        = optional(map(string), {})
+    taints             = optional(list(string), [])
+    talos_platform     = optional(string, "metal")
+    talos_architecture = optional(string, "amd64")
+    talos_schematic_id = optional(string)
+  }))
+  default     = []
+  description = <<-EOT
+    Defines node pools for Worker nodes that are provisioned and joined to the cluster
+    outside of this module (e.g. Raspberry Pis, or ARM/x86 servers on other providers
+    such as Oracle Cloud). This module does not create the underlying machines, nor does
+    it perform the initial join — booting Talos and the first `talosctl apply-config
+    --insecure` are the caller's responsibility (use the generated config exposed via the
+    `talos_machine_configurations_external_worker` output).
+
+    Once a node has joined, it is discovered by hostname (it must be named
+    "<cluster_name>-<nodepool_name>-<suffix>") when `external_worker_discovery_enabled`
+    is true. From then on the module manages its machine configuration and Talos OS
+    upgrades like any cloud-native node. The generated configuration is a plain Worker
+    config with no platform networking assumptions; supply any node-specific networking
+    via `external_worker_config_patches`.
+
+    `talos_platform`/`talos_architecture` (and optional `talos_schematic_id`, defaulting
+    to the cluster schematic) select the Talos factory installer image used during
+    upgrades, so each pool upgrades with the correct image (e.g. oracle-arm64, metal-arm64)
+    rather than the cluster's hcloud image. Use a separate node pool per platform/arch.
+  EOT
+
+  validation {
+    condition     = length(var.external_worker_nodepools) == length(distinct([for np in var.external_worker_nodepools : np.name]))
+    error_message = "External worker node pool names must be unique."
+  }
+
+  validation {
+    condition = alltrue([
+      for np in var.external_worker_nodepools : length(var.cluster_name) + length(np.name) <= 56
+    ])
+    error_message = "The combined length of the cluster name and any external worker node pool name must not exceed 56 characters."
+  }
+
+  validation {
+    condition = alltrue([
+      for np in var.external_worker_nodepools : contains(["amd64", "arm64"], np.talos_architecture)
+    ])
+    error_message = "Each external worker node pool's 'talos_architecture' must be 'amd64' or 'arm64'."
+  }
+}
+
+variable "external_worker_config_patches" {
+  type        = any
+  default     = []
+  description = "List of configuration patches applied to all external worker node pools. Use this to supply node-specific networking (e.g. a VLAN interface for a Hetzner vSwitch dedicated server)."
+}
+
+variable "external_worker_discovery_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable discovery, configuration management, and rolling Talos OS upgrades of external worker nodes. Requires external_worker_nodepools to be configured and nodes to follow the naming convention '<cluster_name>-<nodepool_name>-<suffix>'."
+}
+
+
 # Cluster Autoscaler
 variable "cluster_autoscaler_helm_repository" {
   type        = string

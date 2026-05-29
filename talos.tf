@@ -117,9 +117,10 @@ resource "terraform_data" "upgrade_control_plane" {
       local.talosctl_commands,
       "printf '%s\\n' \"Start upgrading Control Plane Nodes\"",
       templatefile("${path.module}/templates/talos_upgrade.sh.tftpl", {
-        upgrade_nodes      = local.control_plane_private_ipv4_list
-        talos_version      = var.talos_version
-        talos_schematic_id = local.talos_schematic_id
+        upgrade_nodes          = local.control_plane_private_ipv4_list
+        talos_version          = var.talos_version
+        talos_schematic_id     = local.talos_schematic_id
+        node_upgrade_overrides = {}
       }),
       "printf '%s\\n' \"Control Plane Nodes upgraded successfully\"",
     ]) : "printf '%s\\n' \"Cluster not initialized, skipping Control Plane Node upgrade\""
@@ -150,9 +151,10 @@ resource "terraform_data" "upgrade_worker" {
       local.talosctl_commands,
       "printf '%s\\n' \"Start upgrading Worker Nodes\"",
       templatefile("${path.module}/templates/talos_upgrade.sh.tftpl", {
-        upgrade_nodes      = local.worker_private_ipv4_list
-        talos_version      = var.talos_version
-        talos_schematic_id = local.talos_schematic_id
+        upgrade_nodes          = local.worker_private_ipv4_list
+        talos_version          = var.talos_version
+        talos_schematic_id     = local.talos_schematic_id
+        node_upgrade_overrides = {}
       }),
       "printf '%s\\n' \"Worker Nodes upgraded successfully\"",
     ]) : "printf '%s\\n' \"Cluster not initialized, skipping Worker Node upgrade\""
@@ -185,9 +187,10 @@ resource "terraform_data" "upgrade_cluster_autoscaler" {
       local.talosctl_commands,
       "printf '%s\\n' \"Start upgrading Cluster Autoscaler Nodes\"",
       templatefile("${path.module}/templates/talos_upgrade.sh.tftpl", {
-        upgrade_nodes      = local.cluster_autoscaler_private_ipv4_list
-        talos_version      = var.talos_version
-        talos_schematic_id = local.talos_schematic_id
+        upgrade_nodes          = local.cluster_autoscaler_private_ipv4_list
+        talos_version          = var.talos_version
+        talos_schematic_id     = local.talos_schematic_id
+        node_upgrade_overrides = {}
       }),
       "printf '%s\\n' \"Cluster Autoscaler Nodes upgraded successfully\"",
     ]) : "printf '%s\\n' \"Cluster not initialized, skipping Cluster Autoscaler Node upgrade\""
@@ -202,6 +205,47 @@ resource "terraform_data" "upgrade_cluster_autoscaler" {
     data.talos_machine_configuration.cluster_autoscaler,
     terraform_data.upgrade_control_plane,
     terraform_data.upgrade_worker
+  ]
+}
+
+resource "terraform_data" "upgrade_external_worker" {
+  count = var.external_worker_discovery_enabled ? 1 : 0
+
+  triggers_replace = [
+    var.talos_version,
+    local.talos_schematic_id,
+    nonsensitive(sha1(jsonencode(local.external_worker_upgrade_overrides)))
+  ]
+
+  provisioner "local-exec" {
+    when  = create
+    quiet = true
+    command = local.cluster_initialized ? join("\n", [
+      "set -eu",
+      local.talosctl_commands,
+      "printf '%s\\n' \"Start upgrading External Worker Nodes\"",
+      templatefile("${path.module}/templates/talos_upgrade.sh.tftpl", {
+        upgrade_nodes          = local.external_worker_ipv4_list
+        talos_version          = var.talos_version
+        talos_schematic_id     = local.talos_schematic_id
+        node_upgrade_overrides = local.external_worker_upgrade_overrides
+      }),
+      "printf '%s\\n' \"External Worker Nodes upgraded successfully\"",
+    ]) : "printf '%s\\n' \"Cluster not initialized, skipping External Worker Node upgrade\""
+
+    environment = {
+      TALOSCONFIG = nonsensitive(data.talos_client_configuration.this.talos_config)
+    }
+  }
+
+  # Trailing leaf: depends on the core upgrade chain, but nothing core depends on it,
+  # so an unreachable external node never blocks control-plane/worker/k8s upgrades.
+  depends_on = [
+    data.external.talosctl_version_check,
+    data.talos_machine_configuration.external_worker,
+    terraform_data.upgrade_control_plane,
+    terraform_data.upgrade_worker,
+    terraform_data.upgrade_cluster_autoscaler
   ]
 }
 
@@ -400,6 +444,54 @@ resource "terraform_data" "talos_machine_configuration_apply_cluster_autoscaler"
     talos_machine_configuration_apply.worker,
     terraform_data.talos_staged_configuration_reboot_control_plane,
     terraform_data.talos_staged_configuration_reboot_worker
+  ]
+}
+
+resource "terraform_data" "talos_machine_configuration_apply_external_worker" {
+  count = var.external_worker_discovery_enabled ? 1 : 0
+
+  triggers_replace = [
+    nonsensitive(sha1(jsonencode({
+      for k, v in data.talos_machine_configuration.external_worker :
+      k => v.machine_configuration
+    }))),
+    nonsensitive(sha1(jsonencode(local.external_worker_ipv4_list)))
+  ]
+
+  provisioner "local-exec" {
+    when  = create
+    quiet = true
+    command = join("\n", [
+      "set -eu",
+      local.talosctl_commands,
+      templatefile("${path.module}/templates/talos_apply_config.sh.tftpl", {
+        target_nodes                                  = local.external_worker_ipv4_list
+        apply_mode                                    = var.talos_machine_configuration_apply_mode
+        staged_configuration_automatic_reboot_enabled = local.talos_staged_configuration_automatic_reboot_enabled
+        healthcheck_enabled                           = local.cluster_initialized
+      })
+    ])
+
+    environment = merge(
+      { TALOSCONFIG = nonsensitive(data.talos_client_configuration.this.talos_config) },
+      {
+        for hostname, server in local.talos_discovery_external_worker :
+        "TALOS_MC_${replace(coalesce(server.public_ipv4_address, server.private_ipv4_address), ".", "_")}" =>
+        nonsensitive(data.talos_machine_configuration.external_worker[server.nodepool].machine_configuration)
+      }
+    )
+  }
+
+  # Trailing leaf: nothing core (bootstrap, synchronize_manifests) depends on this, so a
+  # down external node cannot break cluster-wide manifest sync or control-plane operations.
+  depends_on = [
+    data.external.talosctl_version_check,
+    terraform_data.upgrade_kubernetes,
+    talos_machine_configuration_apply.control_plane,
+    talos_machine_configuration_apply.worker,
+    terraform_data.talos_staged_configuration_reboot_control_plane,
+    terraform_data.talos_staged_configuration_reboot_worker,
+    terraform_data.talos_machine_configuration_apply_cluster_autoscaler
   ]
 }
 

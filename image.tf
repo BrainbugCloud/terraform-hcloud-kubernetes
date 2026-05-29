@@ -5,6 +5,27 @@ locals {
   talos_amd64_image_url     = data.talos_image_factory_urls.amd64.urls.disk_image
   talos_arm64_image_url     = data.talos_image_factory_urls.arm64.urls.disk_image
 
+  # Installer-image coordinates per external worker node pool. Each pool upgrades with its
+  # own platform/arch (and schematic, defaulting to the cluster schematic) so e.g. oracle and
+  # metal arm64 nodes get the right factory image rather than the cluster's hcloud image.
+  external_worker_nodepool_image = {
+    for np in local.external_worker_nodepools : np.name => {
+      platform     = np.talos_platform
+      architecture = np.talos_architecture
+      schematic_id = np.talos_schematic_id != null ? np.talos_schematic_id : local.talos_schematic_id
+    }
+  }
+  external_worker_schematic_data = {
+    for key in distinct([
+      for v in values(local.external_worker_nodepool_image) : "${v.platform}:${v.architecture}:${v.schematic_id}"
+    ]) :
+    key => {
+      platform     = split(":", key)[0]
+      architecture = split(":", key)[1]
+      schematic_id = split(":", key)[2]
+    }
+  }
+
   amd64_image_required = anytrue([
     for np in concat(
       local.control_plane_nodepools,
@@ -83,6 +104,16 @@ data "talos_image_factory_urls" "arm64" {
   schematic_id  = local.talos_schematic_id
   platform      = "hcloud"
   architecture  = "arm64"
+}
+
+# Installer images for external worker node pools (per platform/arch/schematic).
+data "talos_image_factory_urls" "external_worker" {
+  for_each = local.external_worker_schematic_data
+
+  talos_version = var.talos_version
+  schematic_id  = each.value.schematic_id
+  platform      = each.value.platform
+  architecture  = each.value.architecture
 }
 
 data "hcloud_images" "amd64" {
@@ -213,4 +244,19 @@ data "hcloud_image" "arm64" {
   most_recent       = true
 
   depends_on = [terraform_data.arm64_image]
+}
+
+locals {
+  # Per-discovered-external-node upgrade override, keyed by the node's reachable IP (the
+  # value the worker/external upgrade loop iterates). Resolves the node's pool to its
+  # installer image + schematic. Empty unless external_worker_discovery_enabled.
+  external_worker_upgrade_overrides = {
+    for hostname, s in local.talos_discovery_external_worker :
+    coalesce(s.public_ipv4_address, s.private_ipv4_address) => {
+      schematic_id = local.external_worker_nodepool_image[s.nodepool].schematic_id
+      installer_image_url = data.talos_image_factory_urls.external_worker[
+        "${local.external_worker_nodepool_image[s.nodepool].platform}:${local.external_worker_nodepool_image[s.nodepool].architecture}:${local.external_worker_nodepool_image[s.nodepool].schematic_id}"
+      ].urls.installer
+    }
+  }
 }

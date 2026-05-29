@@ -86,9 +86,30 @@ locals {
     }
   ]
 
+  external_worker_nodepools = [
+    for np in var.external_worker_nodepools : {
+      name = np.name
+      labels = merge(
+        np.labels,
+        { nodepool = np.name }
+      ),
+      annotations = np.annotations,
+      taints = [for taint in np.taints : regex(
+        "^(?P<key>[^=:]+)=?(?P<value>[^=:]*?):(?P<effect>.+)$",
+        taint
+      )],
+      talos_platform     = np.talos_platform
+      talos_architecture = np.talos_architecture
+      talos_schematic_id = np.talos_schematic_id
+    }
+  ]
+
   control_plane_nodepools_map      = { for np in local.control_plane_nodepools : np.name => np }
   worker_nodepools_map             = { for np in local.worker_nodepools : np.name => np }
   cluster_autoscaler_nodepools_map = { for np in local.cluster_autoscaler_nodepools : np.name => np }
+  external_worker_nodepools_map    = { for np in local.external_worker_nodepools : np.name => np }
+
+  external_worker_enabled = length(local.external_worker_nodepools) > 0
 
   control_plane_sum = sum(concat(
     [for np in local.control_plane_nodepools : np.count], [0]

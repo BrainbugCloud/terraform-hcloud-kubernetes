@@ -75,6 +75,18 @@ locals {
   cluster_autoscaler_public_ipv4_list  = compact(distinct([for server in local.talos_discovery_cluster_autoscaler : server.public_ipv4_address]))
   cluster_autoscaler_public_ipv6_list  = compact(distinct([for server in local.talos_discovery_cluster_autoscaler : server.public_ipv6_address]))
   cluster_autoscaler_private_ipv4_list = compact(distinct([for server in local.talos_discovery_cluster_autoscaler : server.private_ipv4_address]))
+
+  # Lists for external worker nodes (discovered after they join).
+  # Reachable address per node: public IP preferred (these join over the internet),
+  # falling back to private. Used to target config-apply and Talos upgrades.
+  # Intentionally NOT added to worker_private_ipv4_list or the global health node
+  # lists, so an unreachable external node never blocks cluster-wide operations
+  # (e.g. synchronize_manifests).
+  external_worker_public_ipv4_list  = compact(distinct([for server in local.talos_discovery_external_worker : server.public_ipv4_address]))
+  external_worker_private_ipv4_list = compact(distinct([for server in local.talos_discovery_external_worker : server.private_ipv4_address]))
+  external_worker_ipv4_list = compact(distinct([
+    for server in local.talos_discovery_external_worker : coalesce(server.public_ipv4_address, server.private_ipv4_address)
+  ]))
 }
 
 data "hcloud_location" "this" {

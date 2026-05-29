@@ -1007,6 +1007,67 @@ To recover from a snapshot, please refer to the Talos Disaster Recovery section 
 </details>
 
 
+<!-- Talos Bootstrap Manifests -->
+<details>
+<summary><b>Talos Bootstrap Manifests</b></summary>
+
+### External Worker Nodes
+
+External worker nodes are Talos workers that run **outside** of Hetzner Cloud — for
+example a Raspberry Pi, or an ARM/x86 VM on another provider such as Oracle Cloud —
+and join this cluster over the network. The module manages them with the same
+discovery mechanism it uses for Cluster Autoscaler nodes: once a node has joined,
+it is discovered by hostname, its machine configuration is generated and applied,
+and it is upgraded along with the rest of the cluster.
+
+What the module does **not** do is create the machine or perform the initial join.
+You boot Talos on the node yourself and run the one-time `talosctl apply-config
+--insecure` (using the generated config from the
+`talos_machine_configurations_external_worker` output). After that, set
+`external_worker_discovery_enabled = true` and everything else is automatic.
+
+```hcl
+external_worker_discovery_enabled = true
+
+external_worker_nodepools = [
+  {
+    name               = "oracle"          # nodes: <cluster>-oracle-01, -02, ...
+    talos_platform     = "oracle"
+    talos_architecture = "arm64"
+    talos_schematic_id = "376567988ad3..." # optional; defaults to the cluster schematic
+    labels             = { "node-type" = "external-arm" }
+    taints             = []
+  },
+  {
+    name               = "rpi"             # nodes: <cluster>-rpi-01, ...
+    talos_platform     = "metal"
+    talos_architecture = "arm64"
+  },
+]
+```
+
+Key points:
+
+- **Hostname convention.** Discovered nodes must be named
+  `<cluster_name>-<nodepool_name>-<suffix>` (set the hostname in the Talos config you
+  apply during the initial join). Use **one node pool per platform/architecture** —
+  the pool's `talos_platform`/`talos_architecture`/`talos_schematic_id` select the
+  Talos factory installer image used for upgrades (e.g. `oracle-arm64`,
+  `metal-arm64`), so each pool upgrades with the correct image.
+- **Plain configuration.** The generated config makes no platform networking
+  assumptions (no VLAN/bond0). Public-internet nodes use their own networking; a
+  Hetzner-vSwitch dedicated server supplies its VLAN interface via
+  `external_worker_config_patches`.
+- **Non-blocking.** External nodes are kept out of the cluster-wide Talos health
+  gate, so an unreachable external node does not block control-plane operations or
+  manifest synchronization. Reaching a node is still required to apply config to it
+  or upgrade it.
+- **Reachability.** The control plane / operator must be able to reach each node's
+  Talos API (`50000/tcp`); set the node up so its discovered address is reachable.
+
+</details>
+
+
 <!-- Talos Discovery Service -->
 <details>
 <summary><b>Talos Discovery Service</b></summary>
