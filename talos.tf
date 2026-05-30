@@ -73,7 +73,8 @@ locals {
     control_plane_nodes                 = local.control_plane_private_ipv4_list
     worker_nodes = concat(
       local.worker_private_ipv4_list,
-      local.cluster_autoscaler_private_ipv4_list
+      local.cluster_autoscaler_private_ipv4_list,
+      local.external_worker_private_ipv4_list
     )
   })
 
