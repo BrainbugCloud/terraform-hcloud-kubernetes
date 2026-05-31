@@ -7,32 +7,44 @@ locals {
   # public nodes use their own networking and a vSwitch dedi supplies a VLAN interface via
   # var.external_worker_config_patches. Mirrors the cluster-autoscaler config generation.
   external_worker_nodepool_talos_config_patch = {
-    for nodepool in local.external_worker_nodepools : nodepool.name => [
-      {
-        machine = {
-          nodeLabels      = nodepool.labels
-          nodeAnnotations = nodepool.annotations
-          kubelet = {
-            extraConfig = merge(
-              {
-                registerWithTaints = nodepool.taints
-                systemReserved = {
-                  cpu               = "100m"
-                  memory            = "300Mi"
-                  ephemeral-storage = "1Gi"
-                }
-                kubeReserved = {
-                  cpu               = "100m"
-                  memory            = "350Mi"
-                  ephemeral-storage = "1Gi"
-                }
-              },
-              var.kubernetes_kubelet_extra_config
-            )
+    for nodepool in local.external_worker_nodepools : nodepool.name => concat(
+      [
+        {
+          machine = {
+            nodeLabels      = nodepool.labels
+            nodeAnnotations = nodepool.annotations
+            kubelet = {
+              extraConfig = merge(
+                {
+                  registerWithTaints = nodepool.taints
+                  systemReserved = {
+                    cpu               = "100m"
+                    memory            = "300Mi"
+                    ephemeral-storage = "1Gi"
+                  }
+                  kubeReserved = {
+                    cpu               = "100m"
+                    memory            = "350Mi"
+                    ephemeral-storage = "1Gi"
+                  }
+                },
+                var.kubernetes_kubelet_extra_config
+              )
+            }
           }
         }
-      }
-    ]
+      ],
+      # Optional static hostname (auto: off) so the node stays discoverable across managed
+      # re-applies. Mirrors talos_config_worker.tf. Single-node pools only.
+      nodepool.hostname != null ? [
+        {
+          apiVersion = "v1alpha1"
+          kind       = "HostnameConfig"
+          hostname   = nodepool.hostname
+          auto       = "off"
+        }
+      ] : []
+    )
   }
 }
 
@@ -51,8 +63,9 @@ data "talos_machine_configuration" "external_worker" {
   examples           = false
 
   config_patches = concat(
-    [for patch in local.talos_base_config_patches : yamlencode(patch)],
+    [for patch in local.talos_external_worker_base_config_patches : yamlencode(patch)],
     [for patch in local.external_worker_nodepool_talos_config_patch[each.key] : yamlencode(patch)],
+    [for patch in lookup(var.external_worker_pool_config_patches, each.key, []) : yamlencode(patch)],
     [for patch in var.external_worker_config_patches : yamlencode(patch)]
   )
 }

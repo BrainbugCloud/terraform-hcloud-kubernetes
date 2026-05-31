@@ -464,6 +464,7 @@ variable "external_worker_nodepools" {
     talos_platform     = optional(string, "metal")
     talos_architecture = optional(string, "amd64")
     talos_schematic_id = optional(string)
+    hostname           = optional(string)
   }))
   default     = []
   description = <<-EOT
@@ -485,6 +486,17 @@ variable "external_worker_nodepools" {
     to the cluster schematic) select the Talos factory installer image used during
     upgrades, so each pool upgrades with the correct image (e.g. oracle-arm64, metal-arm64)
     rather than the cluster's hcloud image. Use a separate node pool per platform/arch.
+
+    Optional `hostname` sets a static Talos `HostnameConfig` (auto: off) for the pool so
+    discovery (and a managed re-apply) keep the node's name stable — useful for metal
+    nodes whose name would otherwise come from DHCP/auto. Because one machine config is
+    generated per pool, `hostname` only makes sense for single-node pools; it must match
+    the discovery pattern "<cluster_name>-<nodepool_name>-<suffix>". Platforms that derive
+    their hostname from instance metadata (e.g. oracle) should leave it null.
+
+    For per-pool Talos config patches (pool-specific DNS, NTP, or networking) use the
+    separate `external_worker_pool_config_patches` map — patches can't live in this typed
+    object because they are heterogeneous documents that OpenTofu cannot unify across pools.
   EOT
 
   validation {
@@ -505,12 +517,35 @@ variable "external_worker_nodepools" {
     ])
     error_message = "Each external worker node pool's 'talos_architecture' must be 'amd64' or 'arm64'."
   }
+
+  validation {
+    condition = alltrue([
+      for np in var.external_worker_nodepools :
+      np.hostname == null || can(regex("^${var.cluster_name}-${np.name}-.+$", np.hostname))
+    ])
+    error_message = "Each external worker node pool 'hostname' (when set) must match '<cluster_name>-<nodepool_name>-<suffix>' so the node stays discoverable."
+  }
 }
 
 variable "external_worker_config_patches" {
   type        = any
   default     = []
   description = "List of configuration patches applied to all external worker node pools. Use this to supply node-specific networking (e.g. a VLAN interface for a Hetzner vSwitch dedicated server)."
+}
+
+variable "external_worker_pool_config_patches" {
+  type        = any
+  default     = {}
+  description = <<-EOT
+    Map of external worker node pool name => list of Talos config patches applied only to
+    that pool. Patches are applied after the base and module patches and before the global
+    `external_worker_config_patches`. Use this for pool-specific DNS (`ResolverConfig`),
+    NTP (`TimeSyncConfig`), or networking (e.g. a metal node's own NIC) when pools need
+    different values. Kept separate from `external_worker_nodepools` because the patches are
+    heterogeneous documents OpenTofu cannot unify inside that typed object. Note: the
+    external-worker base intentionally omits ResolverConfig and TimeSyncConfig so a pool's
+    own values take effect without merging against Hetzner's defaults.
+  EOT
 }
 
 variable "external_worker_discovery_enabled" {

@@ -294,4 +294,24 @@ locals {
     local.talos_static_host_config_patches,
     local.talos_trusted_certs_config_patches
   )
+
+  # Base config for externally-managed worker pools — identical to talos_base_config_patches
+  # EXCEPT it omits ResolverConfig and TimeSyncConfig. Talos MERGES (appends) a second
+  # Resolver/TimeSync document rather than replacing it, so external pools that need
+  # different DNS/NTP (no route to Hetzner's defaults, incl. unroutable IPv6) must supply
+  # their own with no base document to merge against. Per-pool / global external-worker
+  # patches provide them instead. talos_base_config_patches[0] is the shared machine/cluster
+  # document (first element of the concat above).
+  talos_external_worker_base_config_patches = concat(
+    [local.talos_base_config_patches[0]],
+    local.talos_public_link_config_patches,
+    local.talos_public_dhcp_config_patches,
+    local.talos_private_link_config_patches,
+    local.talos_private_dhcp_config_patches,
+    local.talos_system_volume_config_patches,
+    # talos_resolver_config_patch  — intentionally omitted (per-pool / global supplies it)
+    # talos_time_sync_config_patch — intentionally omitted (per-pool / global supplies it)
+    local.talos_static_host_config_patches,
+    local.talos_trusted_certs_config_patches
+  )
 }

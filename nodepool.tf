@@ -101,6 +101,7 @@ locals {
       talos_platform     = np.talos_platform
       talos_architecture = np.talos_architecture
       talos_schematic_id = np.talos_schematic_id
+      hostname           = np.hostname
     }
   ]
 
