@@ -49,6 +49,7 @@ talos_upgrade() {
 
   talosctl upgrade \
     --talosconfig "$talosconfig" \
+    --legacy \
 %{ if talos_upgrade_debug ~}
     --debug \
 %{ endif ~}
