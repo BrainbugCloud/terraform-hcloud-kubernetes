@@ -25,11 +25,38 @@ talos_health_check() {
     return 0
   fi
 
+  # Discovery-based workers (external/autoscaler) can be offline while
+  # Terraform takes its plan-time member snapshot; if the frozen list misses
+  # a node that later re-joins, `talosctl health` deadlocks on "unexpected
+  # nodes" because it compares the explicit --worker-nodes set exactly
+  # against the Kubernetes node list. Re-resolve the member list fresh on
+  # every retry and union it with the plan-time list (the static floor for
+  # Terraform-managed workers) so the loop converges once nodes re-register.
+  # Per member, take the first private IPv4 — same selection as the module's
+  # external_worker_private_ipv4_list. On lookup failure this degrades to
+  # the plan-time list, never worse.
+  worker_nodes='${join(",", worker_nodes)}'
+  if discovered_workers=$(talosctl get member \
+      --talosconfig "$talosconfig" \
+      --nodes '${talos_primary_node}' -o json 2>/dev/null \
+    | jq -r -s '[ .[]
+        | select(.spec.machineType == "worker")
+        | [ .spec.addresses[]
+            | select(test("^(10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[0-1])\\.)")) ]
+        | first
+        | select(. != null) ]
+      | unique | join(",")' 2>/dev/null); then
+    if [ -n "$discovered_workers" ]; then
+      worker_nodes=$(printf '%s,%s\n' "$worker_nodes" "$discovered_workers" \
+        | tr ',' '\n' | grep -v '^$' | sort -u | paste -sd, -)
+    fi
+  fi
+
   talosctl health \
     --talosconfig "$talosconfig" \
     --server=true \
     --control-plane-nodes '${join(",", control_plane_nodes)}' \
-    --worker-nodes '${join(",", worker_nodes)}' \
+    --worker-nodes "$worker_nodes" \
     --nodes "${talos_primary_node}" \
     "$@"
 }
